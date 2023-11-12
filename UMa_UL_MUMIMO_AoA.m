@@ -437,7 +437,6 @@ txGrid(:) = txAmp.*qamSymbols;
 txWaveform = [txWaveform; zeros(maxChDelay,simParams.NumTx)];
 % Pass the waveform through the channel
 [fadWave,pathGains,pathDelays] = channel(txWaveform);
-
 % Estimate timing offset
 %% >>>>>>>>>>>>>>>>>> Channel Estimation Start >>>>>>>>>>>>>>>>>>>>
 offset = nrTimingEstimate(carrier,fadWave,txGrid);
