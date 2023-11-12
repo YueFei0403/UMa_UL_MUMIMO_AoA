@@ -1,7 +1,7 @@
 #!/bin/bash -l
 #SBATCH --job-name=UMa_BER
 #SBATCH --account=def-rsadve
-#SBATCH --time=10:10:30          # adjust this to match the walltime of your job
+#SBATCH --time=20:10:30          # adjust this to match the walltime of your job
 #SBATCH --nodes=1      
 #SBATCH --ntasks=1
 #SBATCH --output=UMa_BER-%j.out
@@ -13,7 +13,7 @@
 
 ######  Run Single-thread Job
 module load matlab
-matlab -nodisplay -singleCompThread -r UMa_UL_MUMIMO_AoA.m
+matlab -nodisplay -singleCompThread -r UMa_UL_MUMIMO_AoA
 
 ######  Run Parallel Job
 # MAIN="AoA_MultiP"

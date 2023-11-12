@@ -1,0 +1,19 @@
+Picked up JAVA_TOOL_OPTIONS: -Xmx2g
+Opening log file:  /tmp/java.log.27810
+
+                            < M A T L A B (R) >
+                  Copyright 1984-2021 The MathWorks, Inc.
+             R2021a Update 5 (9.10.0.1739362) 64-bit (glnxa64)
+                               August 9, 2021
+
+ 
+To get started, type doc.
+For product information, visit www.mathworks.com.
+ 
+>>>>>>>>>>>>>>>>>>> Current SNR 0 >>>>>>>>>>>>>>>>>>>>> 
+>>>>>>>>>>>>>>>>>>> Current SNR 2 >>>>>>>>>>>>>>>>>>>>> 
+>>>>>>>>>>>>>>>>>>> Current SNR 4 >>>>>>>>>>>>>>>>>>>>> 
+>>>>>>>>>>>>>>>>>>> Current SNR 6 >>>>>>>>>>>>>>>>>>>>> 
+>>>>>>>>>>>>>>>>>>> Current SNR 8 >>>>>>>>>>>>>>>>>>>>> 
+>>>>>>>>>>>>>>>>>>> Current SNR 10 >>>>>>>>>>>>>>>>>>>>> 
+slurmstepd: error: *** JOB 17848836 ON cdr693 CANCELLED AT 2023-11-09T23:36:39 DUE TO TIME LIMIT ***

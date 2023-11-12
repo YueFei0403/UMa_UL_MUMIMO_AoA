@@ -1,0 +1,23 @@
+Picked up JAVA_TOOL_OPTIONS: -Xmx2g
+Opening log file:  /tmp/java.log.24768
+
+                            < M A T L A B (R) >
+                  Copyright 1984-2021 The MathWorks, Inc.
+             R2021a Update 5 (9.10.0.1739362) 64-bit (glnxa64)
+                               August 9, 2021
+
+ 
+To get started, type doc.
+For product information, visit www.mathworks.com.
+ 
+>>>>>>>>>>>>>>>>>>> Current SNR 0 >>>>>>>>>>>>>>>>>>>>> 
+{Error using load
+Unable to read file
+'/project/6066423/yuefei/UMa_UL_MUMIMO_AoA/ScatMIMOChanModels/chanModel9.mat'.
+No such file or directory.
+
+Error in UMa_UL_MUMIMO_AoA>genChannelOutput (line 417)
+chanModel = load(fullpath);
+
+Error in UMa_UL_MUMIMO_AoA (line 66)
+                [txInfo,channel,chanInfo,rxInfo]=genChannelOutput(totalNumScatMIMOChannels,ofdmInfo,simParams,carrier,snrdB);} 
