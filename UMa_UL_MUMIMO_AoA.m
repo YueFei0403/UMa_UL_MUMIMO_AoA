@@ -26,8 +26,8 @@ K = carrier.NSizeGrid * 12;
 L = carrier.SymbolsPerSlot;
 simParams.NUser = 1;
 simParams.NPaths = 7;
-SNRmin = 0; SNRmax = 30; step=2; nSNRLevels = length(SNRmin:step:SNRmax);% dB
-nQPSKSym = 14;
+SNRmin = 0; SNRmax = 20; step=1; nSNRLevels = length(SNRmin:step:SNRmax);% dB
+nQPSKSym = 12;
 SqErr_snr_AoA_MP_individual = zeros(simParams.NPaths,nSNRLevels);
 SqErr_snr_AoA_DFT_individual = zeros(simParams.NPaths,nSNRLevels);
 SqErr_snr_Gamma_MP = zeros(1,nSNRLevels);
@@ -42,8 +42,8 @@ NMSE_snr_Gamma_MMSE = zeros(1,nSNRLevels);
 NMSE_snr_Gamma_True = zeros(1,nSNRLevels);
 
 snrIdx = 1;
-totalMCTrials = 5000; % Monte-Carlo trials
-totalNumScatMIMOChannels = 10;
+totalMCTrials = 1; % Monte-Carlo trials
+totalNumScatMIMOChannels = 100;
 qpskRef = pskmod([0 1 2 3],4,pi/4);
 tolFloating = 1e-2;
 dist_CU_User = zeros(simParams.NUser,simParams.NPaths); 
@@ -57,26 +57,23 @@ Beta = 4.1290e-10; % Empirical Large-scale fading coefficient
 %% >>>>>>>>>>>>>>>> MAIN SIMULATION LOOP -- Pilot Training <<<<<<<<<<<<<<<<<<<
 for snrdB=SNRmin:step:SNRmax
     snrPower = 10^(snrdB/10); % power
-
+    
     fprintf(">>>>>>>>>>>>>>>>>>> Current SNR %d >>>>>>>>>>>>>>>>>>>>> \n", snrdB)
     for iMCTrial = 1:totalMCTrials
+        ichannel = randi([1 totalNumScatMIMOChannels]);
         for iSlot = 0:carrier.SlotsPerFrame-1
             carrier.NSlot = iSlot; % current slot number
-            if iSlot == 0
-                [txInfo,channel,chanInfo,rxInfo]=genChannelOutput(totalNumScatMIMOChannels,ofdmInfo,simParams,carrier,snrdB);
-            end
+            [txInfo,channel,chanInfo,rxInfo]=genChannelOutput(ichannel,ofdmInfo,simParams,carrier,snrdB);
             txGrid = txInfo.txGrid;
             AoAs_True = txInfo.AoAs_True;
             Amk_True = txInfo.Amk_True;
-            txRMS = txInfo.txRMS;
-            txAmp = 10^(snrdB / 20);
+            txAmp = txInfo.txAmp;
             offset = chanInfo.offset;
             pathGains = chanInfo.pathGains;
             pathDelays = chanInfo.pathDelays;
             maxChDelay = chanInfo.maxChDelay;
             fadWave = rxInfo.fadWave;
             rxArrayStv = rxInfo.rxArrayStv;
-    
             % Correct timing offset
             fadWave = fadWave(1+offset:end,:);
             % Perform OFDM demodulation
@@ -86,7 +83,7 @@ for snrdB=SNRmin:step:SNRmax
             noiseGrid = 1/sqrt(2).*complex(randn(size(sigGrid)),randn(size(sigGrid)));
             noisePow = computeResourceGridPower(noiseGrid,ofdmInfo.Nfft);
             rxGrid = sigGrid + noiseGrid;
-            freqIdx = 1; % in case of freq-selective fading
+            freqIdx = randi([1 K]); % in case of freq-selective fading
     
             %% ========= Perform Angle-Domain Channel Estimation Algo. ===============
             Xpilot = txGrid(freqIdx,1:nQPSKSym);
@@ -94,15 +91,17 @@ for snrdB=SNRmin:step:SNRmax
             Ypilot = permute(Ypilot,[3,2,1]); % NumRx X NumPilotSym
             Npilot = reshape(noiseGrid(freqIdx,1:nQPSKSym,:),[],nQPSKSym,simParams.NumRx);  % pilot recv: NPilotSymb X NRx
             Npilot = permute(Npilot,[3,2,1]); % NumRx X NumPilotSym
-            pilotNorm = norm(Xpilot(1));
+            pilotNorm = norm(Xpilot);
             
             AOAs_matpencil = zeros(1,simParams.NPaths);
             AOAs_dft = zeros(1,simParams.NPaths);
-            for iSample = 1:1
-                ySampled = Ypilot(:,1)*Xpilot(1)'./pilotNorm^2;
+            for iSample = 1:nQPSKSym
+                ySampled = Ypilot(:,iSample)*Xpilot(iSample)'./norm(Xpilot(iSample))^2;
                 AOAs_matpencil = AOAs_matpencil + sort(matpencil_aoa(ySampled,simParams.NPaths),'ascend');
-                AOAs_dft = AOAs_dft + reshape(dft_aoa(ySampled,simParams.NumRx,simParams.NPaths),1,simParams.NPaths);
+                AOAs_dft = AOAs_dft + reshape(sort(dft_aoa(ySampled,simParams.NumRx,simParams.NPaths),'ascend'),1,simParams.NPaths);
             end
+            AOAs_matpencil = AOAs_matpencil ./ nQPSKSym;
+            AOAs_dft = AOAs_dft ./ nQPSKSym;
             %%  Computing Angle Error Metrics 
 	        for path=1:simParams.NPaths
 		        SqErr_snr_AoA_MP_individual(path,snrIdx) = SqErr_snr_AoA_MP_individual(path,snrIdx) + abs(AoAs_True(1,path) - AOAs_matpencil(path)).^2;
@@ -112,68 +111,68 @@ for snrdB=SNRmin:step:SNRmax
             %%  Channel Amplitude Estimation
 	        Amk_hat_matpencil = rxArrayStv(simParams.fc,[AOAs_matpencil;zeros(1,simParams.NPaths)]);
 	        Amk_hat_dft = rxArrayStv(simParams.fc,[AOAs_dft;zeros(1,simParams.NPaths)]);
-            Gmk_hat_mp = Amk_hat_matpencil* (Amk_hat_matpencil\ (Ypilot(:,1)*Xpilot(1)'/pilotNorm^2))./simParams.NumRx;
-            Gmk_hat_dft = Amk_hat_dft * (Amk_hat_dft \ (Ypilot(:,1)*Xpilot(1)'/pilotNorm^2)) ./simParams.NumRx;
-            Gmk_true = Amk_True * (Amk_True \ (Ypilot(:,1)*Xpilot(1)'/pilotNorm^2)) ./simParams.NumRx;
+            Gmk_hat_mp = Amk_hat_matpencil* (Amk_hat_matpencil\ (Ypilot*Xpilot'/pilotNorm^2)) ;
+            Gmk_hat_dft = Amk_hat_dft * (Amk_hat_dft \ (Ypilot*Xpilot'/pilotNorm^2));
+            Gmk_true = Amk_True * (Amk_True \ (Ypilot*Xpilot'/pilotNorm^2));
     
             %% Perform MMSE Channel Estimation
             h_LinMMSE = h_MMSE_CE(Ypilot,Xpilot,Npilot,Beta);
     
             %% ========= Perform True Channel Estimation Algo. ===============
-            refInd = [1:12:nQPSKSym*12];
+            refInd = [freqIdx:12:freqIdx+nQPSKSym*12-1];
             refSym = txGrid(refInd);
-            hest = nrChannelEstimate(rxGrid,txGrid); % 12x14x8
-            hmk_true = reshape(hest(freqIdx,1,:),simParams.NumRx,[]);
+            [hEstGrid,noiseEst] = nrChannelEstimate(rxGrid,txGrid); % 12x14x8
+            hmk_true = reshape(hEstGrid(freqIdx,1,:),simParams.NumRx,[]);
+
             %% ========= Perform Error Estimation ===============
             sqErr_MP = mean(norm(hmk_true - Gmk_hat_mp)^2);
             sqErr_DFT = mean(norm(hmk_true - Gmk_hat_dft)^2);
             sqErr_MMSE = mean(norm(hmk_true - h_LinMMSE)^2);
-            sqErr_True = mean(norm(hmk_true - Gmk_true)^2);
             SqErr_snr_Gamma_MP(snrIdx) = SqErr_snr_Gamma_MP(snrIdx) + sqErr_MP;
 	        SqErr_snr_Gamma_DFT(snrIdx) = SqErr_snr_Gamma_DFT(snrIdx) + sqErr_DFT;
 	        SqErr_snr_Gamma_LinearMMSE(snrIdx) = SqErr_snr_Gamma_LinearMMSE(snrIdx) + sqErr_MMSE;
-            SqErr_snr_Gamma_True(snrIdx) = SqErr_snr_Gamma_True(snrIdx) + sqErr_True;
+
             
             sqNorm_Gamma_true = mean(norm(hmk_true)^2);
             nmse_MP = sqErr_MP / sqNorm_Gamma_true;
             nmse_DFT = sqErr_DFT / sqNorm_Gamma_true;
             nmse_MMSE = sqErr_MMSE / sqNorm_Gamma_true;
-            nmse_True = sqErr_True / sqNorm_Gamma_true;
             NMSE_snr_Gamma_MP(snrIdx) = NMSE_snr_Gamma_MP(snrIdx) + nmse_MP;
             NMSE_snr_Gamma_DFT(snrIdx) = NMSE_snr_Gamma_DFT(snrIdx) + nmse_DFT;
             NMSE_snr_Gamma_MMSE(snrIdx) = NMSE_snr_Gamma_MMSE(snrIdx) + nmse_MMSE;
-            NMSE_snr_Gamma_True(snrIdx) = NMSE_snr_Gamma_True(snrIdx) + nmse_True;
+            
 	        %% <<<<<<<<<<<<<<<< Channel Estimation End <<<<<<<<<<<<<<<<<<<
+
+            %% >>>>>>>>>> SER Estimation Start >>>>>>>>>>>>
+            symEnc = txGrid(freqIdx,1:nQPSKSym) ./ txAmp;
+            symDecMP = Gmk_hat_mp'*Ypilot;
+            symDecDFT = Gmk_hat_dft'*Ypilot;
+            symDecMMSE = h_LinMMSE'*Ypilot;
+            [symRx,symHest] = nrExtractResources(refInd,rxGrid,hEstGrid);
+            symDecTrue = nrEqualizeMMSE(symRx,symHest,noiseEst);
+        
+            symEncQPSK = nrSymbolDemodulate(symEnc.','QPSK','DecisionType','Hard');
+            symDemodMP = nrSymbolDemodulate(symDecMP.','QPSK','DecisionType','Hard');
+            symDemodDFT = nrSymbolDemodulate(symDecDFT.','QPSK','DecisionType','Hard');
+            symDemodMMSE = nrSymbolDemodulate(symDecMMSE.','QPSK','DecisionType','Hard');
+            symDemodTrue = nrSymbolDemodulate(symDecTrue,'QPSK','DecisionType','Hard');
+        
+            berMP = biterr(symEncQPSK,symDemodMP);
+            berDFT = biterr(symEncQPSK,symDemodDFT);
+            berLMMSE = biterr(symEncQPSK,symDemodMMSE);
+            berTrue = biterr(symEncQPSK,symDemodTrue);
+            BER_MP(snrIdx) = BER_MP(snrIdx) + berMP;
+            BER_DFT(snrIdx) = BER_DFT(snrIdx) + berDFT;
+            BER_MMSE(snrIdx) = BER_MMSE(snrIdx) + berLMMSE;
+            BER_theoretical(snrIdx) = BER_theoretical(snrIdx) + berTrue;
         end
     end
-    %% >>>>>>>>>> SER Estimation Start >>>>>>>>>>>>
-    qpskSymRecv = reshape(rxGrid(freqIdx,1:nQPSKSym,:),[],nQPSKSym,simParams.NumRx); % pilot recv: NQPSKSym X NRx
-    qpskSymRecv = permute(qpskSymRecv,[3,2,1]); % NumRx X NumQPSKSym
-    symEnc = txGrid(freqIdx,1:nQPSKSym) ./ txAmp;
-    symDecMP = Gmk_hat_mp'*Ypilot / norm(Gmk_hat_mp)^2;
-    symDecDFT = Gmk_hat_dft'*Ypilot / norm(Gmk_hat_dft)^2;
-    symDecMMSE = h_LinMMSE'*Ypilot ./ norm(h_LinMMSE)^2;
-    symDecTrue = hmk_true'*Ypilot ./ norm(hmk_true)^2;
+    
 
-    symEncQPSK = pskdemod(symEnc,4,pi/4);
-    symDemodMP = pskdemod(symDecMP,4,pi/4);
-    symDemodDFT = pskdemod(symDecDFT,4,pi/4);
-    symDemodMMSE = pskdemod(symDecMMSE,4,pi/4);
-    symDemodTrue = pskdemod(symDecTrue,4,pi/4);
-
-    berMP = biterr(symEncQPSK,symDemodMP);
-    berDFT = biterr(symEncQPSK,symDemodDFT);
-    berLMMSE = biterr(symEncQPSK,symDemodMMSE);
-    berTrue = biterr(symEncQPSK,symDemodTrue);
-    BER_MP(snrIdx) = BER_MP(snrIdx) + berMP;
-    BER_DFT(snrIdx) = BER_DFT(snrIdx) + berDFT;
-    BER_MMSE(snrIdx) = BER_MMSE(snrIdx) + berLMMSE;
-    BER_theoretical(snrIdx) = BER_theoretical(snrIdx) + berTrue;
-
-    BER_MP(snrIdx) = BER_MP(snrIdx) ./ (nQPSKSym*totalMCTrials*carrier.SlotsPerFrame);
-    BER_DFT(snrIdx) = BER_DFT(snrIdx) ./ (nQPSKSym*totalMCTrials*carrier.SlotsPerFrame);
-    BER_MMSE(snrIdx) = BER_MMSE(snrIdx) ./ (nQPSKSym*totalMCTrials*carrier.SlotsPerFrame);
-    BER_theoretical(snrIdx) = BER_theoretical(snrIdx) ./ (nQPSKSym*totalMCTrials*carrier.SlotsPerFrame);
+    BER_MP(snrIdx) = BER_MP(snrIdx) ./ (2*nQPSKSym*totalMCTrials*carrier.SlotsPerFrame);
+    BER_DFT(snrIdx) = BER_DFT(snrIdx) ./ (2*nQPSKSym*totalMCTrials*carrier.SlotsPerFrame);
+    BER_MMSE(snrIdx) = BER_MMSE(snrIdx) ./ (1*nQPSKSym*totalMCTrials*carrier.SlotsPerFrame);
+    BER_theoretical(snrIdx) = BER_theoretical(snrIdx) ./ (2*nQPSKSym*totalMCTrials*carrier.SlotsPerFrame);
 
     Eb = mean(rms(sigGrid(freqIdx,1:nQPSKSym,:)),3)^2;
     N0 = mean(rms(noiseGrid(freqIdx,1:nQPSKSym,:)),3)^2;
@@ -183,7 +182,7 @@ for snrdB=SNRmin:step:SNRmax
     NMSE_snr_Gamma_MP(snrIdx) = NMSE_snr_Gamma_MP(snrIdx) ./ (nQPSKSym*totalMCTrials*carrier.SlotsPerFrame);
     NMSE_snr_Gamma_DFT(snrIdx) = NMSE_snr_Gamma_DFT(snrIdx) ./ (nQPSKSym*totalMCTrials*carrier.SlotsPerFrame);
     NMSE_snr_Gamma_MMSE(snrIdx) = NMSE_snr_Gamma_MMSE(snrIdx) ./ (nQPSKSym*totalMCTrials*carrier.SlotsPerFrame);
-    NMSE_snr_Gamma_True(snrIdx) = NMSE_snr_Gamma_True(snrIdx) ./ (nQPSKSym*totalMCTrials*carrier.SlotsPerFrame);
+    
     snrIdx = snrIdx + 1;
 end
 
@@ -212,10 +211,9 @@ print(fig1,pngfile,'-dpng')
 
 fig2=figure;
 hold on; grid on
-plot(SNRmin:step:SNRmax,NMSE_snr_Gamma_MP,'Color','#0099ff','DisplayName','Hmk Matrix Pencil');
-plot(SNRmin:step:SNRmax,NMSE_snr_Gamma_DFT,'Color','red','DisplayName','Hmk DFT');
-plot(SNRmin:step:SNRmax,NMSE_snr_Gamma_MMSE,'DisplayName','Hmk MMSE');
-plot(SNRmin:step:SNRmax,NMSE_snr_Gamma_True,'DisplayName','Hmk AoA-True');
+semilogy(SNRmin:step:SNRmax,NMSE_snr_Gamma_MP,'Color','#0099ff','DisplayName','Hmk Matrix Pencil');
+semilogy(SNRmin:step:SNRmax,NMSE_snr_Gamma_DFT,'Color','red','DisplayName','Hmk DFT');
+semilogy(SNRmin:step:SNRmax,NMSE_snr_Gamma_MMSE,'DisplayName','Hmk MMSE');
 xlabel('SNR (dB)')
 ylabel('NMSE of Channel Response Estimation')
 title(sprintf('NMSE of Channel Response Estimation: NumPilot=%d NAnt=%d',nQPSKSym,simParams.NumRx));
@@ -227,10 +225,10 @@ print(fig2,pngfile,'-dpng')
 fig3=figure;
 hold on
 grid on
-plot(SNRmin:step:SNRmax,BER_MP,'DisplayName','BER Matrix-Pencil');
-plot(SNRmin:step:SNRmax,BER_DFT,'DisplayName','BER DFT');
-plot(SNRmin:step:SNRmax,BER_MMSE,'DisplayName','BER Linear-MMSE');
-plot(SNRmin:step:SNRmax,BER_theoretical,'DisplayName','BER theoretical');
+semilogy(SNRmin:step:SNRmax,BER_MP,'o','DisplayName','BER Matrix-Pencil');
+semilogy(SNRmin:step:SNRmax,BER_DFT,'.','DisplayName','BER DFT');
+semilogy(SNRmin:step:SNRmax,BER_MMSE,'*','DisplayName','BER Linear-MMSE');
+semilogy(SNRmin:step:SNRmax,BER_theoretical,'square','DisplayName','BER theoretical');
 xlabel('Eb/N0 (dB)')
 ylabel('BER')
 title(sprintf('BER vs. Transmitter Power: NumPilot=%d NAnt=%d',nQPSKSym,simParams.NumRx));
@@ -403,18 +401,20 @@ end
 end
 
 
-function [txInfo,channel,chanInfo,rxInfo]=genChannelOutput(totalNumScatMIMOChannels,ofdmInfo,simParams,carrier,snrdB)
+function [txInfo,channel,chanInfo,rxInfo]=genChannelOutput(ichannel,ofdmInfo,simParams,carrier,snrdB)
 % Configure transmitter/receiver/Scatterers positions
 refax = [[1;0;0] [0;1;0] [0;0;0]];
-ichannel = randi([1 totalNumScatMIMOChannels]);
 chanFileName = fullfile("ScatMIMOChanModels",sprintf("chanModel%d.mat",ichannel));
 file = java.io.File(chanFileName);
-if file.isAbsolute()
-  fullpath = chanFileName;
-else
-  fullpath = char(file.getCanonicalPath());
+fullpath = char(file.getAbsolutePath());
+try
+    chanModel = load(fullpath);
+catch
+    chanFileName = fullfile("ScatMIMOChanModels",sprintf("chanModel%d.mat",1));
+    file = java.io.File(chanFileName);
+    fullpath = char(file.getAbsolutePath());
+    chanModel = load(fullpath);
 end
-chanModel = load(fullpath);
 channel = chanModel.channel;
 simParams.scatPos = channel.ScattererPosition;
 simParams.posTx = channel.TransmitArrayPosition;
@@ -424,7 +424,7 @@ simParams.posRx = channel.ReceiveArrayPosition;
 maxChDelay = ceil(max(tau)*ofdmInfo.SampleRate);
 
 % Transmitter Setup
-txAmp = 10^(snrdB/20);
+txAmp = 10000*10^(snrdB/20);
 txGrid = nrResourceGrid(carrier,simParams.NumTx);
 qamSymbols = nrSymbolModulate(randi([0,1],numel(txGrid)*2,1),'QPSK');
 txGrid(:) = txAmp.*qamSymbols;
@@ -437,6 +437,7 @@ txGrid(:) = txAmp.*qamSymbols;
 txWaveform = [txWaveform; zeros(maxChDelay,simParams.NumTx)];
 % Pass the waveform through the channel
 [fadWave,pathGains,pathDelays] = channel(txWaveform);
+
 % Estimate timing offset
 %% >>>>>>>>>>>>>>>>>> Channel Estimation Start >>>>>>>>>>>>>>>>>>>>
 offset = nrTimingEstimate(carrier,fadWave,txGrid);
@@ -455,7 +456,7 @@ Amk_True = rxArrayStv(simParams.fc,AoAs_True(1,:));
 txInfo.txGrid = txGrid;
 txInfo.AoAs_True = AoAs_True;
 txInfo.Amk_True = Amk_True;
-txInfo.txRMS = rms(txWaveform);
+txInfo.txAmp = txAmp;
 chanInfo.pathGains = pathGains;
 chanInfo.pathDelays = pathDelays;
 chanInfo.maxChDelay = maxChDelay;
@@ -513,7 +514,3 @@ function beamDir = getInitialBeamDir(scatAng,azBeamWidth,elBeamWidth)
     % for transmit/receive beam
     beamDir = [azAng;elAng];
 end
-
-
-
-
