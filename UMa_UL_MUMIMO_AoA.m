@@ -42,8 +42,8 @@ NMSE_snr_Gamma_MMSE = zeros(1,nSNRLevels);
 NMSE_snr_Gamma_True = zeros(1,nSNRLevels);
 
 snrIdx = 1;
-totalMCTrials = 1; % Monte-Carlo trials
-totalNumScatMIMOChannels = 100;
+totalMCTrials = 100; % Monte-Carlo trials
+totalNumScatMIMOChannels = 10;
 qpskRef = pskmod([0 1 2 3],4,pi/4);
 tolFloating = 1e-2;
 dist_CU_User = zeros(simParams.NUser,simParams.NPaths); 
@@ -78,10 +78,7 @@ for snrdB=SNRmin:step:SNRmax
             fadWave = fadWave(1+offset:end,:);
             % Perform OFDM demodulation
             sigGrid = nrOFDMDemodulate(carrier,fadWave);
-            sigPow = computeResourceGridPower(sigGrid,ofdmInfo.Nfft);
-            txPow = computeResourceGridPower(txGrid,ofdmInfo.Nfft);
             noiseGrid = 1/sqrt(2).*complex(randn(size(sigGrid)),randn(size(sigGrid)));
-            noisePow = computeResourceGridPower(noiseGrid,ofdmInfo.Nfft);
             rxGrid = sigGrid + noiseGrid;
             freqIdx = randi([1 K]); % in case of freq-selective fading
     
@@ -225,10 +222,10 @@ print(fig2,pngfile,'-dpng')
 fig3=figure;
 hold on
 grid on
-semilogy(SNRmin:step:SNRmax,BER_MP,'o','DisplayName','BER Matrix-Pencil');
-semilogy(SNRmin:step:SNRmax,BER_DFT,'.','DisplayName','BER DFT');
-semilogy(SNRmin:step:SNRmax,BER_MMSE,'*','DisplayName','BER Linear-MMSE');
-semilogy(SNRmin:step:SNRmax,BER_theoretical,'square','DisplayName','BER theoretical');
+semilogy(SNRmin:step:SNRmax,BER_MP,'-o','DisplayName','BER Matrix-Pencil');
+semilogy(SNRmin:step:SNRmax,BER_DFT,'-.','DisplayName','BER DFT');
+semilogy(SNRmin:step:SNRmax,BER_MMSE,'-*','DisplayName','BER Linear-MMSE');
+semilogy(SNRmin:step:SNRmax,BER_theoretical,'-square','DisplayName','BER theoretical');
 xlabel('Eb/N0 (dB)')
 ylabel('BER')
 title(sprintf('BER vs. Transmitter Power: NumPilot=%d NAnt=%d',nQPSKSym,simParams.NumRx));
