@@ -69,7 +69,7 @@ BER_theoretical = zeros(nPilotLengths,1);
 totalMCTrials = 50; % Monte-Carlo trials
 tolFloating = 1e-2;
 % 5.2129e-10 for 500 serving radius
-Beta = 5.2129e-10; % Empirical Large-scale fading coefficient
+Beta = 4.2129e-10; % Empirical Large-scale fading coefficient
 nQPSKSymb=12;
 %% >>>>>>>>>>>>>>>> MAIN SIMULATION LOOP -- Pilot Training <<<<<<<<<<<<<<<<<<<
 snrdB = 10;snrPower = 10^(snrdB/10); % power
@@ -103,7 +103,8 @@ for pilotIdx=1:nPilotLengths
                 sigGrid = sigGridMultiDU(:,:,antennaRange);
                 noiseGrid = noiseGridMultiDU(:,:,antennaRange);
                 rxGrid = sigGrid + noiseGrid;
-                %% ========= Perform Angle-Domain Channel Estimation Algo. ===============
+                
+                %% ========= Extract Signals from Resource Grid ===============
                 Xpilot = txGrid(freqIdx,1:currPilotL);
                 Ypilot = reshape(rxGrid(freqIdx,1:currPilotL,:),[],currPilotL,simParams.NumRx);     % pilot recv: NPilotSymb X NRx
                 Ypilot = permute(Ypilot,[3,2,1]); % NumRx X NumPilotSym
@@ -111,20 +112,16 @@ for pilotIdx=1:nPilotLengths
                 Npilot = permute(Npilot,[3,2,1]); % NumRx X NumPilotSym
                 pilotNorm = norm(Xpilot);
                 
-                AOAs_matpencil = zeros(1,simParams.NPaths);
+                %% ========= Perform Angle-Domain Channel Estimation Algo. ===============
                 AOAs_dft = zeros(1,simParams.NPaths);
                 for iSample = 1:currPilotL
                     ySampled = Ypilot(:,iSample)*Xpilot(iSample)'./norm(Xpilot(iSample))^2;
-                    AOAs_matpencil = AOAs_matpencil + sort(matpencil_aoa(ySampled,simParams.NPaths),'ascend');
                     AOAs_dft = AOAs_dft + reshape(sort(dft_aoa(ySampled,simParams.NumRx,simParams.NPaths),'ascend'),1,simParams.NPaths);
                 end
-                AOAs_matpencil = AOAs_matpencil ./ currPilotL;
                 AOAs_dft = AOAs_dft ./ currPilotL;
                 
                 %  Channel Amplitude Estimation
-	            Amk_hat_matpencil = rxArrayStv(simParams.fc,[AOAs_matpencil;zeros(1,simParams.NPaths)]);
 	            Amk_hat_dft = rxArrayStv(simParams.fc,[AOAs_dft;zeros(1,simParams.NPaths)]);
-                Gmk_hat_mp = Amk_hat_matpencil* (Amk_hat_matpencil\ (Ypilot*Xpilot'/pilotNorm^2));
                 Gmk_hat_dft = Amk_hat_dft * (Amk_hat_dft \ (Ypilot*Xpilot'/pilotNorm^2));
                 Gmk_true = Amk_True * (Amk_True \ (Ypilot*Xpilot'/pilotNorm^2));
         
@@ -138,14 +135,30 @@ for pilotIdx=1:nPilotLengths
                 [hEstGrid,noiseEst] = nrChannelEstimate(rxGrid,txGrid);
                 hmk_true = reshape(hEstGrid(freqIdx,1,:),simParams.NumRx,[]);
 	            %% <<<<<<<<<<<<<< Channel Estimation at Single-DU Ends <<<<<<<<<<<<<<<<
-
                 
-                %% >>>>>>>>>>>>>>> Pilot-Training Performance >>>>>>>>>>>>>>>>>
-                Hest_MP(antennaRange) = Gmk_hat_mp;
+                %% >>>>>>>>>>>>>>> Pilot-Training Performance >>>>>>>>>>>>>>>>
                 Hest_DFT(antennaRange) = Gmk_hat_dft;
                 Hest_LMMSE(antennaRange) = h_LinMMSE;
                 H_AoA_True(antennaRange) = Gmk_true;
                 H_True(antennaRange) = hmk_true;
+            end
+
+            %% >>>>>>>>>>>>>>> BER  >>>>>>>>>>>>>>>>>
+            rxGridMultiDU = sigGridMultiDU + noiseGridMultiDU;
+            yQPSK = reshape(rxGridMultiDU(freqIdx,1:nQPSKSymb,:),[],nQPSKSymb,simParams.NumRxMultiDU);     % pilot recv: NPilotSymb X NRx
+            yQPSK = permute(yQPSK,[3,2,1]); % NumRx X NumQPSKSymb
+
+            %% >>>>>>>>>>>>>> Zero-Pilot Matrix-Pencil Training >>>>>>>>>>>>
+            for DUIdx = 1:simParams.NumDU
+                antennaRange = (DUIdx-1)*8+1:DUIdx*8;
+                rxGrid = rxGridMultiDU(antennaRange);
+               
+                ySampled = reshape(rxGrid,[],simParams.NumRx);     % pilot recv: NPilotSymb X NRx
+                
+                AOAs_matpencil = sort(matpencil_aoa(ySampled,simParams.NPaths),'ascend'); % zero-pilot
+                Amk_hat_matpencil = rxArrayStv(simParams.fc,[AOAs_matpencil;zeros(1,simParams.NPaths)]);
+                Gmk_hat_mp = Amk_hat_matpencil* (Amk_hat_matpencil\ (Ypilot*Xpilot'/pilotNorm^2));
+                Hest_MP(antennaRange) = Gmk_hat_mp;
             end
 
             %% >>>>>>>>>>>>>> NMSE >>>>>>>>>>>>>>>
@@ -155,10 +168,6 @@ for pilotIdx=1:nPilotLengths
             NMSE_Hmk_MP_Pilot(pilotIdx) = NMSE_Hmk_MP_Pilot(pilotIdx) + nmseMP;
             NMSE_Hmk_DFT_Pilot(pilotIdx) = NMSE_Hmk_DFT_Pilot(pilotIdx) + nmseDFT;
             NMSE_Hmk_LMMSE_Pilot(pilotIdx) = NMSE_Hmk_LMMSE_Pilot(pilotIdx) + nmseLMMSE;
-            %% >>>>>>>>>>>>>>> BER  >>>>>>>>>>>>>>>>>
-            rxGridMultiDU = sigGridMultiDU + noiseGridMultiDU;
-            yQPSK = reshape(rxGridMultiDU(freqIdx,1:nQPSKSymb,:),[],nQPSKSymb,simParams.NumRxMultiDU);     % pilot recv: NPilotSymb X NRx
-            yQPSK = permute(yQPSK,[3,2,1]); % NumRx X NumQPSKSymb
 
             symEnc = txGrid(freqIdx,1:nQPSKSymb) ./ txAmp;
             berMP = computeBER(yQPSK,symEnc,Hest_MP);
@@ -182,7 +191,6 @@ for pilotIdx=1:nPilotLengths
     NMSE_Hmk_MP_Pilot(pilotIdx) = NMSE_Hmk_MP_Pilot(pilotIdx) ./ (totalMCTrials*carrier.SlotsPerFrame);
     NMSE_Hmk_DFT_Pilot(pilotIdx) = NMSE_Hmk_DFT_Pilot(pilotIdx) ./ (totalMCTrials*carrier.SlotsPerFrame);
     NMSE_Hmk_LMMSE_Pilot(pilotIdx) = NMSE_Hmk_LMMSE_Pilot(pilotIdx) ./ (totalMCTrials*carrier.SlotsPerFrame);
-    disp(NMSE_Hmk_LMMSE_Pilot(pilotIdx))
     
     EbN0(pilotIdx) = EbN0(pilotIdx) ./ (totalMCTrials*carrier.SlotsPerFrame);
 end
@@ -192,23 +200,23 @@ job=string(datetime('now','Format',"yyyy-MM-dd-HH-mm-ss"));
 
 fig1=figure;
 hold on; 
-semilogy(pilotLengths,NMSE_Hmk_MP_Pilot,'-o','Color','#0099ff','DisplayName','Hmk Matrix Pencil');
+semilogy(pilotLengths,NMSE_Hmk_MP_Pilot,'-o','Color','#0099ff','DisplayName','Hmk Matrix Pencil (zero-pilot)');
 semilogy(pilotLengths,NMSE_Hmk_DFT_Pilot,'-^','Color','red','DisplayName','Hmk DFT');
 semilogy(pilotLengths,NMSE_Hmk_LMMSE_Pilot,'-*','DisplayName','Hmk MMSE');
 set(gca, 'YScale', 'log') % But you can explicitly force it to be logarithmic
 grid on
 xlabel('Number of Pilots')
 ylabel('NMSE of Channel Response Estimation')
-title(sprintf('NMSE CSI: NAnt=%d ServeRadius=%d',simParams.NumRx,serveRadius));
+title(sprintf('NMSE CSI (Zero-Pilot): NAnt=%d ServeRadius=%d',simParams.NumRx,serveRadius));
 legend show
 hold off
-pngfile=sprintf('NMSE_pilot_CSI_servR%d_%dPaths_j%s',serveRadius,simParams.NPaths,job);
+pngfile=sprintf('NMSE_CSI_zeroPilot_servR%d_j%s',serveRadius,job);
 print(fig1,pngfile,'-dpng')
 
 
 fig2=figure;
 hold on
-semilogy(pilotLengths,BER_MP,'-o','DisplayName','BER Matrix-Pencil');
+semilogy(pilotLengths,BER_MP,'-o','DisplayName','BER Matrix-Pencil (zero-pilot)');
 semilogy(pilotLengths,BER_DFT,'-^','DisplayName','BER DFT');
 semilogy(pilotLengths,BER_MMSE,'-*','DisplayName','BER Linear-MMSE');
 semilogy(pilotLengths,BER_theoretical,'-square','DisplayName','BER theoretical');
@@ -216,10 +224,10 @@ set(gca, 'YScale', 'log') % But you can explicitly force it to be logarithmic
 grid on
 xlabel('Number of Pilots')
 ylabel('BER')
-title(sprintf('BER vs Number of Pilots ServeRadius=%d',serveRadius));
+title(sprintf('BER vs Number of Pilots (Zero-Pilot) ServeRadius=%d',serveRadius));
 legend show     
 hold off
-pngfile=sprintf('BER_Pilot_servR%d_%dPaths_j%s',serveRadius,simParams.NPaths,job);
+pngfile=sprintf('BER_CSI_zeroPilot_servR%d_j%s',serveRadius,job);
 print(fig2,pngfile,'-dpng')
 
 
@@ -230,10 +238,10 @@ set(gca, 'YScale', 'log') % But you can explicitly force it to be logarithmic
 grid on
 xlabel('Number of Pilots')
 ylabel('EbN0')
-title(sprintf('Num. of Pilots vs EbN0 NumDU=%d ServeRadius=%d NumPaths=%d',simParams.NumDU,serveRadius,simParams.NPaths));
+title(sprintf('Num. of Pilotsvs EbN0 NumDU=%d ServeRadius=%d',simParams.NumDU,serveRadius));
 legend show
 hold off
-pngfile=sprintf('EbN0_Pilot_MultiDU_servR%d_%dPaths_j%s',serveRadius,simParams.NPaths,job);
+pngfile=sprintf('EbN0_Pilot_MultiDU_servR%d_j%s',serveRadius,job);
 print(fig3,pngfile,'-dpng')
 %% <<<<<<<<<<<<<<<<<< Plotting End <<<<<<<<<<<<<<<<<<<<<<<<
 %% =============== END OF MAIN FUNCTION ==================
@@ -249,7 +257,7 @@ function [AoAs_True_MultiDU,Amk_True_MultiDU,sigGridMultiDU,noiseGridMultiDU,txG
 refax = [[1;0;0] [0;1;0] [0;0;0]];
 
 % Transmitter Setup
-txAmp = 2000*10^(snrdB/20); % 33dBm
+txAmp = 1000*10^(snrdB/20); % 40dBm
 txGrid = nrResourceGrid(carrier,simParams.NumTx);
 qamSymbols = nrSymbolModulate(randi([0,1],numel(txGrid)*2,1),'QPSK');
 txGrid(:) = txAmp.*qamSymbols;
@@ -344,7 +352,16 @@ function h_LinMMSE = h_MMSE_CE(y,x,n,Beta)
 %                   NumRx X NumPaths
 % x                 = pilot symbol
 % noise
-[~,currPilotL] = size(y);
+[NumRx,currPilotL] = size(y);
+% h_LinMMSE = zeros(NumRx,1);
+% for p=1:currPilotL
+%     x_sqval = sum(abs(x(p)).^2);
+%     yExtracted = y(:,p)*x(p)'/x_sqval;
+%     zeta = Beta / Beta + (trace(n(:,p)*n(:,p)')/trace(y(:,p)*y(:,p)'));
+%     W_MMSE = 1/(1+1/zeta);
+%     h_LinMMSE = h_LinMMSE + W_MMSE*yExtracted;
+% end
+% h_LinMMSE = h_LinMMSE ./ currPilotL;
 x_sqval = sum(abs(x).^2);
 yExtracted = y*x'/x_sqval;
 zeta = Beta / Beta + (trace(n*n')/trace(y*y')/currPilotL);
