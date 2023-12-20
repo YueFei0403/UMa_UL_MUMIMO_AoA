@@ -13,7 +13,7 @@
 
 ######  Run Single-thread Job
 module load matlab
-matlab -nodisplay -singleCompThread -r UMa_UL_MUMIMO_AoA
+matlab -nodisplay -singleCompThread -r UMa_UL_MultiDU_SingleUser_NumPilot
 
 ######  Run Parallel Job
 # MAIN="AoA_MultiP"
